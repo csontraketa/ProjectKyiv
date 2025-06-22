@@ -1,0 +1,107 @@
+import pygame
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import sys
+import time
+
+URL = "https://csontraketa.github.io/kyiv.html"
+CHECK_INTERVAL_SECONDS = 10
+
+pygame.init()
+pygame.mixer.init()
+
+WIDTH, HEIGHT = 600, 200
+ablak = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("ProjectKyiv")
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+GREEN_BG = (20, 90, 50)
+RED_BG = (130, 30, 30)
+GRAY_BG = (50, 50, 50)
+FONT_LARGE = pygame.font.Font(None, 80)
+
+try:
+    siren_sound = pygame.mixer.Sound("siren.mp3")
+    siren_sound.set_volume(0)
+    siren_sound.play(loops=-1)
+except pygame.error:
+    siren_sound = None
+
+def szirenacheck_selenium():
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--log-level=3")
+
+    driver = None
+    try:
+        driver = webdriver.Chrome(options=chrome_options)
+        driver.get(URL)
+
+        wait = WebDriverWait(driver, 20)
+        wait.until_not(EC.text_to_be_present_in_element((By.ID, "status"), "Státusz lekérdezése..."))
+        
+        status_element = driver.find_element(By.ID, "status")
+        status_text = status_element.text
+        
+        print(f"Oldalról olvasott szöveg: '{status_text[:30]}...' ({time.strftime('%H:%M:%S')})")
+
+        if "Riasztás van érvényben." in status_text:
+            return "ALERT"
+        elif "Nincs riasztás." in status_text:
+            return "OK"
+        else:
+            return "ERROR"
+
+    except Exception as e:
+        print(f"Hiba történt a Selenium ellenőrzés közben: {e}")
+        return "ERROR"
+    finally:
+        if driver:
+            driver.quit()
+
+# --- Fő Programciklus ---
+running = True
+current_status = "OK"
+last_check_time = 0
+
+while running:
+    now = pygame.time.get_ticks()
+    if now - last_check_time > CHECK_INTERVAL_SECONDS * 1000:
+        current_status = szirenacheck_selenium()
+        last_check_time = now
+
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_q:
+                running = False
+
+    if siren_sound:
+        siren_sound.set_volume(0.7 if current_status == "ALERT" else 0)
+
+    # Dinamikus háttérszín beállítása
+    if current_status == "ALERT":
+        ablak.fill(RED_BG)
+    elif current_status == "OK":
+        ablak.fill(GREEN_BG)
+    else: # "ERROR"
+        ablak.fill(GRAY_BG)
+
+    # Szöveg kiírása
+    if current_status == "ALERT":
+        status_text = FONT_LARGE.render("RIASZTÁS", True, WHITE)
+    elif current_status == "OK":
+        status_text = FONT_LARGE.render("Nincs aktív riasztás.", True, WHITE)
+    else: # "ERROR"
+        status_text = FONT_LARGE.render("HIBA", True, WHITE)
+    
+    ablak.blit(status_text, status_text.get_rect(center=ablak.get_rect().center))
+    
+    pygame.display.update()
+
+pygame.quit()
+sys.exit()
